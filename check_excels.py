@@ -10,15 +10,6 @@ import glob
 directory_path = '/ExcelFiles'
 output_directory = os.path.join(directory_path, 'duplicates')
 
-# Ensure the output directory exists
-if not os.path.exists(output_directory):
-    os.makedirs(output_directory)
-# Load the Excel file
-<<<<<<< HEAD
-excel_files = glob.glob(os.path.join(directory_path, '*.xlsx')) + glob.glob(os.path.join(directory_path, '*.csv'))
-=======
-excel_csv_files = glob.glob(os.path.join(directory_path, '*.xlsx')) + glob.glob(os.path.join(directory_path, '*.csv')) + glob.glob(os.path.join(directory_path, '*.txt'))
->>>>>>> parent of 53bcdea (Update check_excels.py)
 
 # Function to interpolate colors from red to yellow (existing function)
 def interpolate_colors_red_to_yellow(num_colors):
@@ -57,14 +48,10 @@ def extract_digits(value, digit_count=6):
     except Exception as e:
         return None
 
-<<<<<<< HEAD
-for file_path in excel_files:
-    tqdm.write(f"Reading file: {file_path}")
-=======
-def process_file(file_path):
->>>>>>> parent of 53bcdea (Update check_excels.py)
+def process_file(file_path, output_dir):
     file_extension = file_path.split('.')[-1]
     workbook_modified = False
+    decimal_duplication_found = False
         # Set up a new workbook for each file
     wb = Workbook()
     wb.remove(wb.active)  # Remove the default sheet
@@ -76,6 +63,9 @@ def process_file(file_path):
     elif file_extension == 'csv':
         sheet_names = [None]  # CSV files don't have multiple sheets, but we use a list to keep the structure
         read_func = lambda _: pd.read_csv(file_path)
+    elif file_extension == 'txt':
+        sheet_names = [None]  # CSV files don't have multiple sheets, but we use a list to keep the structure
+        read_func = lambda _: pd.read_csv(file_path, sep=' ')
 
     for sheet_name in sheet_names:
         df = read_func(sheet_name)
@@ -141,23 +131,28 @@ def process_file(file_path):
 
             if workbook_modified:
                 base_name = os.path.basename(file_path)
-<<<<<<< HEAD
-                new_base_name = os.path.splitext(base_name)[0] + ('_duplicateDecimal' if decimal_duplication_found else '_duplicateCell') + os.path.splitext(base_name)[1]
-                new_file_path = os.path.join(output_directory, new_base_name)
-                wb.save(new_file_path)
-=======
                 new_base_name = os.path.splitext(base_name)[0] + ('_duplicateDecimal' if decimal_duplication_found else '_duplicateCell') + '.xlsx'
-                new_file_path = os.path.join(output_directory, new_base_name)
+                new_file_path = os.path.join(output_dir, new_base_name)
+                # new_file_path = os.path.join(output_directory, new_base_name)
                 wb.save(new_file_path)
 
 
-for file_path in tqdm(excel_csv_files, desc='Processing files'):
-    tqdm.write(f"Reading file: {file_path}")
-    file_size = os.path.getsize(file_path)
+for root, dirs, files in os.walk(directory_path):
+    for file in files:
+        if file.endswith(('.xlsx', '.csv', '.txt')):
+            file_path = os.path.join(root, file)
+            file_size = os.path.getsize(file_path)
+            if file_size > 614400:  # Skip files larger than 600 KB
+                print(f"Skipping file due to size limit: {file}")
+                continue
 
-    # Skip files larger than 600 KB
-    if file_size > 650000:
-        tqdm.write(f"Skipping file due to size limit (>{file_size/1024} KB): {file_path}")
-        continue
-    process_file(file_path)
->>>>>>> parent of 53bcdea (Update check_excels.py)
+            # Prepare the output directory for this file
+            relative_path = os.path.relpath(root, directory_path)
+            output_dir = os.path.join(output_directory, relative_path)
+            if not os.path.exists(output_dir):
+                os.makedirs(output_dir)
+
+            # Process the file
+            process_file(file_path, output_dir)
+
+print("All files processed.")
