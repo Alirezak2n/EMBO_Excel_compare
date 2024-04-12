@@ -7,7 +7,7 @@ import os
 import glob
 
 # Define the path to the original Excel file
-directory_path = 'C:/Users/Alireza/Downloads/Source data files with issues for Alireza/Source data files with issues for Alireza'
+directory_path = '/ExcelFiles'
 output_directory = os.path.join(directory_path, 'duplicates')
 
 # Ensure the output directory exists
@@ -16,24 +16,44 @@ if not os.path.exists(output_directory):
 # Load the Excel file
 excel_files = glob.glob(os.path.join(directory_path, '*.xlsx'))
 
-# Function to interpolate colors from red to yellow
-def interpolate_colors(num_colors):
+
+# Function to interpolate colors from red to yellow (existing function)
+def interpolate_colors_red_to_yellow(num_colors):
     colors = []
     for i in range(num_colors):
-        # Linear interpolation for the green channel
-        green = int(255 * (i / (num_colors - 1)))  # Increment green channel linearly
+        green = int(255 * (i / (num_colors ))**0.5)  # Linear interpolation for the green channel
         colors.append(f"FF{green:02X}00")  # Format as HEX, keeping red at 255 and blue at 0
+    return colors
+
+# New function to interpolate colors from green to blue
+def interpolate_colors_green_to_blue(num_colors):
+    colors = []
+    for i in range(num_colors):
+        blue = int(255 * (i / (num_colors ))**0.5)  # Linear interpolation for the blue channel
+        colors.append(f"00FF{blue:02X}")  # Format as HEX, keeping green at 255 and red at 0
     return colors
 
 def extract_first_five_decimals(value):
     try:
         parts = str(value).split('.')
-        if len(parts) > 1 and len(parts[1]) > 4:  # Check if there's a decimal component
-            return int(parts[1][:5])  # Return only up to five digits after the decimal
-    except:
+        if len(parts) > 1 and (len(parts[1]) > 5):
+            significant_decimals = parts[1].lstrip('0')[:5]
+            return int(significant_decimals) if significant_decimals else None
+    except Exception as e:
         return None
 
-# Process each file
+def extract_digits(value, digit_count=6):
+    try:
+        parts = str(value).split('.')
+        if len(parts) > 1 and (len(parts[1]) > 3):
+            if parts[0] == '0':  # If zero before the decimal
+                decimal_part = parts[1].lstrip('0')
+            else:
+                decimal_part = parts[0][-2:] + parts[1]  # Two from before the decimal and start of after
+            return decimal_part[:digit_count] if len(decimal_part) >= digit_count else decimal_part
+    except Exception as e:
+        return None
+
 # Process each file with a progress bar
 for file_path in tqdm(excel_files, desc="Processing files"):
     tqdm.write(f"Reading file: {file_path}")
@@ -42,57 +62,69 @@ for file_path in tqdm(excel_files, desc="Processing files"):
     workbook_modified = False
     decimal_duplication_found = False
     wb = Workbook()
-    wb.remove(wb.active)  # Remove the default sheet
+    wb.remove(wb.active)
 
     for sheet_name in xls.sheet_names:
         df = pd.read_excel(xls, sheet_name=sheet_name)
-
-        # Flatten the DataFrame to check duplicates across all values
         values = pd.Series(df.values.ravel())
-        duplicated_values = values[values.duplicated(keep=False)].unique()  # Get unique duplicated values
+        duplicated_values = values[values.duplicated(keep=False)].unique()
 
-        # Prepare to check for decimal similarities
         decimal_occurrences = {}
+        digit_occurrences = {}
         for val in df.values.ravel():
             first_five = extract_first_five_decimals(val)
-            if first_five is not None:  # Only consider values with the required decimal part
-                if first_five in decimal_occurrences:
-                    decimal_occurrences[first_five].append(val)
-                else:
-                    decimal_occurrences[first_five] = [val]
+            new_digits = extract_digits(val)
+            if first_five is not None:
+                decimal_occurrences.setdefault(first_five, []).append(val)
+            if new_digits is not None:
+                digit_occurrences.setdefault(new_digits, []).append(val)
 
-        # Continue only if there are duplicated values or decimal matches
-                # Generate color gradient
-        num_groups = len((decimal_occurrences ))
-        # print(len(set(tuple(vals) for vals in decimal_occurrences.values() if len(vals) > 1)))
-        if num_groups > 0:
-            color_gradient = interpolate_colors(num_groups)
-            color_mapping = {key: color for key, color in zip(decimal_occurrences, color_gradient)}
-            if len(duplicated_values) > 1 or any(len(vals) > 1 for vals in decimal_occurrences.values()):
-                workbook_modified = True
-                if any(len(vals) > 1 for vals in decimal_occurrences.values()):
-                    decimal_duplication_found = True  # Flag that there's a decimal duplication
-                ws = wb.create_sheet(title=sheet_name)
+        num_groups = len(set(decimal_occurrences.keys()))
+        num_groups_digits = len(set(digit_occurrences.keys()))
+        color_gradient_red_yellow = interpolate_colors_red_to_yellow(max(num_groups, num_groups_digits))
+        color_gradient_green_blue = interpolate_colors_green_to_blue(max(num_groups, num_groups_digits))
 
-                # Convert the DataFrame to rows in Excel, including headers and index
-                for r_idx, row in enumerate(dataframe_to_rows(df, index=False, header=True), 1):
-                    ws.append(row)
-                    if r_idx > 1:  # Skip the header row for formatting
-                        # Iterate over each cell in the current row
-                        for c_idx, cell in enumerate(ws[r_idx]):
-                            # Highlight cells with duplicated values
-                            if cell.value in duplicated_values:
-                                cell.fill = PatternFill(start_color="add8e6", end_color="add8e6", fill_type="solid")
-                            # Highlight cells with matching first five decimal digits
-                            first_five = extract_first_five_decimals(cell.value)
-                            if first_five is not None and len(decimal_occurrences[first_five]) > 1:
-                                fill_color = color_mapping[first_five]
-                                cell.fill = PatternFill(start_color=fill_color, end_color=fill_color, fill_type="solid")
+        num_groups_duplicates= len(set(tuple(vals) for vals in decimal_occurrences.values() if len(vals) > 1))
+        num_groups_duplicates_digits = len(set(tuple(vals) for vals in digit_occurrences.values() if len(vals) > 1))
+        color_gradient_red_yellow_duplicates = interpolate_colors_red_to_yellow(num_groups_duplicates)
+        color_gradient_green_blue_duplicates = interpolate_colors_green_to_blue(num_groups_duplicates_digits)
 
-    # Save the new formatted workbook if modifications were made
-    if workbook_modified:
-        base_name = os.path.basename(file_path)
-        new_base_name = os.path.splitext(base_name)[0] + ('_duplicateDecimal' if decimal_duplication_found else '_duplicateCell') + os.path.splitext(base_name)[1]
+        filled_cells = set()  # Track cells that have been filled
 
-        new_file_path = os.path.join(output_directory, new_base_name)
-        wb.save(new_file_path)
+        if len(duplicated_values) > 1 or any(len(vals) > 1 for vals in decimal_occurrences.values()) or any(len(vals) > 1 for vals in digit_occurrences.values()):
+            workbook_modified = True
+            ws = wb.create_sheet(title=sheet_name)
+            for r_idx, row in enumerate(dataframe_to_rows(df, index=False, header=True), 1):
+                ws.append(row)
+                if r_idx > 1:
+                    for c_idx, cell in enumerate(ws[r_idx]):
+                        cell_position = (r_idx, c_idx)  # Track cell position
+                        if cell.value in duplicated_values:
+                            cell.fill = PatternFill(start_color="add8e6", end_color="add8e6", fill_type="solid")
+                        first_five = extract_first_five_decimals(cell.value)
+                        if first_five is not None and len(decimal_occurrences[first_five]) > 1:
+                            decimal_duplication_found = True
+                            color_index = list(decimal_occurrences.keys()).index(first_five)
+                            try:
+                                fill_color = color_gradient_red_yellow_duplicates[color_index]
+                            except:
+                                fill_color = color_gradient_red_yellow[color_index % len(color_gradient_red_yellow)]
+                            # fill_color = color_gradient_red_yellow[color_index % len(color_gradient_red_yellow)]
+                            cell.fill = PatternFill(start_color=fill_color, end_color=fill_color, fill_type="solid")
+                            filled_cells.add(cell_position)  # Mark this cell as filled
+                        new_digits = extract_digits(cell.value)
+                        if new_digits is not None and len(digit_occurrences[new_digits]) > 1 and cell_position not in filled_cells:
+                            decimal_duplication_found = True
+                            color_index = list(digit_occurrences.keys()).index(new_digits)
+                            try:
+                                fill_color = color_gradient_green_blue_duplicates[color_index]
+                            except:
+                                fill_color = color_gradient_green_blue[color_index % len(color_gradient_green_blue)]
+                            # fill_color = color_gradient_green_blue[color_index % len(color_gradient_green_blue)]
+                            cell.fill = PatternFill(start_color=fill_color, end_color=fill_color, fill_type="solid")
+
+        if workbook_modified:
+            base_name = os.path.basename(file_path)
+            new_base_name = os.path.splitext(base_name)[0] + ('_duplicateDecimal' if decimal_duplication_found else '_duplicateCell') + os.path.splitext(base_name)[1]
+            new_file_path = os.path.join(output_directory, new_base_name)
+            wb.save(new_file_path)
