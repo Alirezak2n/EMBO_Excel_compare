@@ -1,21 +1,21 @@
 import pandas as pd
 from tqdm import tqdm
 from openpyxl import Workbook
-from openpyxl.styles import Font, Color, PatternFill
+from openpyxl.styles import PatternFill
 from openpyxl.utils.dataframe import dataframe_to_rows
 import os
-import glob
+import matplotlib.pyplot as plt
+import numpy as np
 
 # Define the path to the original Excel file
 directory_path = '/ExcelFiles'
 output_directory = os.path.join(directory_path, 'duplicates')
 
-
 # Function to interpolate colors from red to yellow (existing function)
 def interpolate_colors_red_to_yellow(num_colors):
     colors = []
     for i in range(num_colors):
-        green = int(255 * (i / (num_colors ))**0.5)  # Linear interpolation for the green channel
+        green = int(255 * (i / (num_colors ))**0.7)  # Linear interpolation for the green channel
         colors.append(f"FF{green:02X}00")  # Format as HEX, keeping red at 255 and blue at 0
     return colors
 
@@ -23,7 +23,7 @@ def interpolate_colors_red_to_yellow(num_colors):
 def interpolate_colors_green_to_blue(num_colors):
     colors = []
     for i in range(num_colors):
-        blue = int(255 * (i / (num_colors ))**0.5)  # Linear interpolation for the blue channel
+        blue = int(255 * (i / (num_colors ))**0.7)  # Linear interpolation for the blue channel
         colors.append(f"00FF{blue:02X}")  # Format as HEX, keeping green at 255 and red at 0
     return colors
 
@@ -47,6 +47,34 @@ def extract_digits(value, digit_count=6):
             return decimal_part[:digit_count] if len(decimal_part) >= digit_count else decimal_part
     except Exception as e:
         return None
+# Function to extract the first significant digit
+def extract_first_significant_digit(value):
+    try:
+        number_str = ''.join(filter(str.isdigit, str(value)))
+        # Find the index of the first non-zero digit
+        for digit in number_str:
+            if digit != '0':
+                return int(digit)
+
+    except (ValueError, TypeError):
+        return None
+
+def plot_benford_law(actual_counts, total_data_points):
+    digits = list(range(1, 10))
+    benford_percentages = [30.1, 17.6, 12.5, 9.7, 7.9, 6.7, 5.8, 5.1, 4.6]
+    expected_counts = [p * total_data_points / 100 for p in benford_percentages]
+
+    plt.figure(figsize=(10, 5))
+    plt.bar(digits, actual_counts, alpha=0.7, label='Actual Data', color='b')
+    plt.plot(digits, expected_counts, 'r--', label='Expected Benford Distribution', linewidth=2)
+    plt.xlabel('Digits')
+    plt.ylabel('Frequency')
+    plt.title('Benford\'s Law Analysis')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+
 
 def process_file(file_path, output_dir):
     file_extension = file_path.split('.')[-1]
@@ -66,11 +94,14 @@ def process_file(file_path, output_dir):
     elif file_extension == 'txt':
         sheet_names = [None]  # CSV files don't have multiple sheets, but we use a list to keep the structure
         read_func = lambda _: pd.read_csv(file_path, sep='\t')
-
-
+    first_digits_count = [0] * 9
     for sheet_name in sheet_names:
         df = read_func(sheet_name)
         values = pd.Series(df.values.ravel())
+        digit_series = df.map(extract_first_significant_digit).stack().value_counts().reindex(np.arange(1, 10), fill_value=0)
+        first_digits_count += digit_series
+
+
         duplicated_values = values[values.duplicated(keep=False)].unique()
 
         decimal_occurrences = {}
@@ -133,15 +164,20 @@ def process_file(file_path, output_dir):
             new_file_path = os.path.join(output_dir, new_base_name)
             # new_file_path = os.path.join(output_directory, new_base_name)
             wb.save(new_file_path)
+    if not first_digits_count.empty:
+        total_data_points = first_digits_count.sum()
+        plot_benford_law(first_digits_count.tolist(), total_data_points)
 
 
 for root, dirs, files in os.walk(directory_path):
-    for file in files:
+    for file in tqdm(files, desc='Processing files'):
+        tqdm.write(f"Reading file: {file}")
+
         if file.endswith(('.xlsx', '.csv', '.txt')):
             file_path = os.path.join(root, file)
             file_size = os.path.getsize(file_path)
             if file_size > 614400:  # Skip files larger than 600 KB
-                print(f"Skipping file due to size limit: {file}")
+                tqdm.write(f"Skipping file due to size limit: {file}")
                 continue
 
             # Prepare the output directory for this file
@@ -153,4 +189,4 @@ for root, dirs, files in os.walk(directory_path):
             # Process the file
             process_file(file_path, output_dir)
 
-print("All files processed.")
+tqdm.write("All files processed.")
