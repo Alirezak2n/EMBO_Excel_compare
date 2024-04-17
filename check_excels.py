@@ -65,76 +65,74 @@ def process_file(file_path, output_dir):
         read_func = lambda _: pd.read_csv(file_path)
     elif file_extension == 'txt':
         sheet_names = [None]  # CSV files don't have multiple sheets, but we use a list to keep the structure
-        read_func = lambda _: pd.read_csv(file_path, sep=' ')
+        read_func = lambda _: pd.read_csv(file_path, sep='\t')
+
 
     for sheet_name in sheet_names:
         df = read_func(sheet_name)
+        values = pd.Series(df.values.ravel())
+        duplicated_values = values[values.duplicated(keep=False)].unique()
 
-        for sheet_name in sheet_names:
-            df = read_func(sheet_name)
-            values = pd.Series(df.values.ravel())
-            duplicated_values = values[values.duplicated(keep=False)].unique()
+        decimal_occurrences = {}
+        digit_occurrences = {}
+        for val in df.values.ravel():
+            first_five = extract_first_five_decimals(val)
+            new_digits = extract_digits(val)
+            if first_five is not None:
+                decimal_occurrences.setdefault(first_five, []).append(val)
+            if new_digits is not None:
+                digit_occurrences.setdefault(new_digits, []).append(val)
 
-            decimal_occurrences = {}
-            digit_occurrences = {}
-            for val in df.values.ravel():
-                first_five = extract_first_five_decimals(val)
-                new_digits = extract_digits(val)
-                if first_five is not None:
-                    decimal_occurrences.setdefault(first_five, []).append(val)
-                if new_digits is not None:
-                    digit_occurrences.setdefault(new_digits, []).append(val)
+        num_groups = len(set(decimal_occurrences.keys()))
+        num_groups_digits = len(set(digit_occurrences.keys()))
+        color_gradient_red_yellow = interpolate_colors_red_to_yellow(max(num_groups, num_groups_digits))
+        color_gradient_green_blue = interpolate_colors_green_to_blue(max(num_groups, num_groups_digits))
 
-            num_groups = len(set(decimal_occurrences.keys()))
-            num_groups_digits = len(set(digit_occurrences.keys()))
-            color_gradient_red_yellow = interpolate_colors_red_to_yellow(max(num_groups, num_groups_digits))
-            color_gradient_green_blue = interpolate_colors_green_to_blue(max(num_groups, num_groups_digits))
+        num_groups_duplicates= len(set(tuple(vals) for vals in decimal_occurrences.values() if len(vals) > 1))
+        num_groups_duplicates_digits = len(set(tuple(vals) for vals in digit_occurrences.values() if len(vals) > 1))
+        color_gradient_red_yellow_duplicates = interpolate_colors_red_to_yellow(num_groups_duplicates)
+        color_gradient_green_blue_duplicates = interpolate_colors_green_to_blue(num_groups_duplicates_digits)
 
-            num_groups_duplicates= len(set(tuple(vals) for vals in decimal_occurrences.values() if len(vals) > 1))
-            num_groups_duplicates_digits = len(set(tuple(vals) for vals in digit_occurrences.values() if len(vals) > 1))
-            color_gradient_red_yellow_duplicates = interpolate_colors_red_to_yellow(num_groups_duplicates)
-            color_gradient_green_blue_duplicates = interpolate_colors_green_to_blue(num_groups_duplicates_digits)
+        filled_cells = set()  # Track cells that have been filled
 
-            filled_cells = set()  # Track cells that have been filled
+        if len(duplicated_values) > 1 or any(len(vals) > 1 for vals in decimal_occurrences.values()) or any(len(vals) > 1 for vals in digit_occurrences.values()):
+            workbook_modified = True
+            ws = wb.create_sheet(title=sheet_name)
+            for r_idx, row in enumerate(dataframe_to_rows(df, index=False, header=True), 1):
+                ws.append(row)
+                if r_idx > 1:
+                    for c_idx, cell in enumerate(ws[r_idx]):
+                        cell_position = (r_idx, c_idx)  # Track cell position
+                        if cell.value in duplicated_values:
+                            cell.fill = PatternFill(start_color="add8e6", end_color="add8e6", fill_type="solid")
+                        first_five = extract_first_five_decimals(cell.value)
+                        if first_five is not None and len(decimal_occurrences[first_five]) > 1:
+                            decimal_duplication_found = True
+                            color_index = list(decimal_occurrences.keys()).index(first_five)
+                            try:
+                                fill_color = color_gradient_red_yellow_duplicates[color_index]
+                            except:
+                                fill_color = color_gradient_red_yellow[color_index % len(color_gradient_red_yellow)]
+                            # fill_color = color_gradient_red_yellow[color_index % len(color_gradient_red_yellow)]
+                            cell.fill = PatternFill(start_color=fill_color, end_color=fill_color, fill_type="solid")
+                            filled_cells.add(cell_position)  # Mark this cell as filled
+                        new_digits = extract_digits(cell.value)
+                        if new_digits is not None and len(digit_occurrences[new_digits]) > 1 and cell_position not in filled_cells:
+                            decimal_duplication_found = True
+                            color_index = list(digit_occurrences.keys()).index(new_digits)
+                            try:
+                                fill_color = color_gradient_green_blue_duplicates[color_index]
+                            except:
+                                fill_color = color_gradient_green_blue[color_index % len(color_gradient_green_blue)]
+                            # fill_color = color_gradient_green_blue[color_index % len(color_gradient_green_blue)]
+                            cell.fill = PatternFill(start_color=fill_color, end_color=fill_color, fill_type="solid")
 
-            if len(duplicated_values) > 1 or any(len(vals) > 1 for vals in decimal_occurrences.values()) or any(len(vals) > 1 for vals in digit_occurrences.values()):
-                workbook_modified = True
-                ws = wb.create_sheet(title=sheet_name)
-                for r_idx, row in enumerate(dataframe_to_rows(df, index=False, header=True), 1):
-                    ws.append(row)
-                    if r_idx > 1:
-                        for c_idx, cell in enumerate(ws[r_idx]):
-                            cell_position = (r_idx, c_idx)  # Track cell position
-                            if cell.value in duplicated_values:
-                                cell.fill = PatternFill(start_color="add8e6", end_color="add8e6", fill_type="solid")
-                            first_five = extract_first_five_decimals(cell.value)
-                            if first_five is not None and len(decimal_occurrences[first_five]) > 1:
-                                decimal_duplication_found = True
-                                color_index = list(decimal_occurrences.keys()).index(first_five)
-                                try:
-                                    fill_color = color_gradient_red_yellow_duplicates[color_index]
-                                except:
-                                    fill_color = color_gradient_red_yellow[color_index % len(color_gradient_red_yellow)]
-                                # fill_color = color_gradient_red_yellow[color_index % len(color_gradient_red_yellow)]
-                                cell.fill = PatternFill(start_color=fill_color, end_color=fill_color, fill_type="solid")
-                                filled_cells.add(cell_position)  # Mark this cell as filled
-                            new_digits = extract_digits(cell.value)
-                            if new_digits is not None and len(digit_occurrences[new_digits]) > 1 and cell_position not in filled_cells:
-                                decimal_duplication_found = True
-                                color_index = list(digit_occurrences.keys()).index(new_digits)
-                                try:
-                                    fill_color = color_gradient_green_blue_duplicates[color_index]
-                                except:
-                                    fill_color = color_gradient_green_blue[color_index % len(color_gradient_green_blue)]
-                                # fill_color = color_gradient_green_blue[color_index % len(color_gradient_green_blue)]
-                                cell.fill = PatternFill(start_color=fill_color, end_color=fill_color, fill_type="solid")
-
-            if workbook_modified:
-                base_name = os.path.basename(file_path)
-                new_base_name = os.path.splitext(base_name)[0] + ('_duplicateDecimal' if decimal_duplication_found else '_duplicateCell') + '.xlsx'
-                new_file_path = os.path.join(output_dir, new_base_name)
-                # new_file_path = os.path.join(output_directory, new_base_name)
-                wb.save(new_file_path)
+        if workbook_modified:
+            base_name = os.path.basename(file_path)
+            new_base_name = os.path.splitext(base_name)[0] + ('_duplicateDecimal' if decimal_duplication_found else '_duplicateCell') + '.xlsx'
+            new_file_path = os.path.join(output_dir, new_base_name)
+            # new_file_path = os.path.join(output_directory, new_base_name)
+            wb.save(new_file_path)
 
 
 for root, dirs, files in os.walk(directory_path):
